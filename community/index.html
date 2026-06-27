@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>학교 익명 커뮤니티</title>
+    <title>역곡초 커뮤니티</title>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <style>
         body { font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background: #fafafa; }
@@ -11,44 +11,105 @@
         .form-group { margin-bottom: 10px; }
         input, textarea, select { width: 100%; padding: 8px; box-sizing: border-box; border: 1px solid #ddd; border-radius: 4px; }
         button { width: 100%; padding: 10px; background: #4f46e5; color: white; border: none; border-radius: 4px; cursor: pointer; }
+        button.logout { background: #ef4444; margin-top: 5px; }
         .badge { display: inline-block; padding: 2px 6px; font-size: 12px; border-radius: 4px; font-weight: bold; }
         .badge.admin { background: #fee2e2; color: #ef4444; }
         .badge.user { background: #e0e7ff; color: #4f46e5; }
+        .auth-box { text-align: center; color: #666; }
     </style>
 </head>
 <body>
-    <h2>🌳 나무 커뮤니티</h2>
+    <div style="display: flex; justify-content: space-between; align-items: center;">
+        <h2>🌳 역곡초 커뮤니티</h2>
+        <div id="auth-status"></div>
+    </div>
     
-    <div class="card">
-        <h3>익명 글쓰기</h3>
-        <div class="form-group">
-            <select id="category">
-                <option value="자유">자유</option>
-                <option value="급식">급식</option>
-                <option value="학습">학습</option>
-            </select>
+    <div class="card" id="write-section">
+        <div id="login-form" class="auth-box">
+            <p>🔒 글을 작성하려면 구글 시트로 승인받은 계정으로 로그인해야 합니다.</p>
+            <div class="form-group"><input type="email" id="login-email" placeholder="이메일"></div>
+            <div class="form-group"><input type="password" id="login-password" placeholder="비밀번호"></div>
+            <button onclick="login()">로그인</button>
         </div>
-        <div class="form-group"><input type="text" id="title" placeholder="제목"></div>
-        <div class="form-group"><textarea id="content" placeholder="내용"></textarea></div>
-        <button onclick="writePost()">글 등록하기</button>
+
+        <div id="write-form" style="display: none;">
+            <h3>익명 글쓰기</h3>
+            <div class="form-group">
+                <select id="category">
+                    <option value="자유">자유</option>
+                    <option value="급식">급식</option>
+                    <option value="학습">학습</option>
+                </select>
+            </div>
+            <div class="form-group"><input type="text" id="title" placeholder="제목"></div>
+            <div class="form-group"><textarea id="content" placeholder="내용"></textarea></div>
+            <button onclick="writePost()">글 등록하기</button>
+        </div>
     </div>
 
     <h3>최신 게시글</h3>
     <div id="posts">로딩 중...</div>
 
     <script>
-        // ⚠️ 이곳을 본인의 Supabase 정보로 꼭 변경하세요!
+        // ⚠️ 본인의 Supabase 정보 유지
         const SUPABASE_URL = "https://dfgnxvxvhjgtcdkracwj.supabase.co";
         const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRmZ254dnh2aGpndGNka3JhY3dqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI1MjIxOTksImV4cCI6MjA5ODA5ODE5OX0.rnD77QUsST1kSYMIu9WhcIOiGq6b1wpg8yy8oPO27os";
         const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
-        // 글 읽어오기
+        // 현재 로그인한 유저 정보 저장용 변수
+        let currentUser = null;
+
+        // 1. 유저 로그인 상태 감지 (핵심)
+        supabase.auth.onAuthStateChange((event, session) => {
+            const loginForm = document.getElementById('login-form');
+            const writeForm = document.getElementById('write-form');
+            const authStatus = document.getElementById('auth-status');
+
+            if (session) {
+                // 로그인 성공 시
+                currentUser = session.user;
+                loginForm.style.display = 'none';
+                writeForm.style.display = 'block';
+                authStatus.innerHTML = `<small>${currentUser.email}</small> <button class="logout" style="width:auto; padding:3px 8px; font-size:12px;" onclick="logout()">로그아웃</button>`;
+            } else {
+                // 로그아웃 혹은 비로그인 상태 시
+                currentUser = null;
+                loginForm.style.display = 'block';
+                writeForm.style.display = 'none';
+                authStatus.innerHTML = '';
+            }
+        });
+
+        // 2. 로그인 함수
+        async function login() {
+            const email = document.getElementById('login-email').value;
+            const password = document.getElementById('login-password').value;
+
+            if(!email || !password) return alert('이메일과 비밀번호를 입력해주세요.');
+
+            const { error } = await supabase.auth.signInWithPassword({ email, password });
+            if (error) alert('로그인 실패: ' + error.message);
+        }
+
+        // 3. 로그아웃 함수
+        async function logout() {
+            await supabase.auth.signOut();
+        }
+
+        // 4. 글 읽어오기 (누구나 가능)
         async function getPosts() {
-            const { data, error } = await supabase.from('posts').select('*').order('created_at', { ascending: false });
-            if (error) return alert('로딩 실패');
+            // 보안을 위해 select에서 'user_id'는 쏙 빼고 가져옵니다 (익명성 유지)
+            const { data, error } = await supabase.from('posts').select('id, title, content, category, is_admin, created_at').order('created_at', { ascending: false });
+            if (error) return alert('로딩 실패: ' + error.message);
             
             const container = document.getElementById('posts');
             container.innerHTML = '';
+            
+            if (data.length === 0) {
+                container.innerHTML = '<p style="color: #aaa; text-align: center;">첫 게시글을 남겨보세요!</p>';
+                return;
+            }
+
             data.forEach(post => {
                 const div = document.createElement('div');
                 div.className = 'card';
@@ -62,17 +123,24 @@
             });
         }
 
-        // 익명 글 쓰기
+        // 5. 로그인 필수 익명 글 쓰기
         async function writePost() {
+            if (!currentUser) return alert('로그인이 필요한 서비스입니다.');
+
             const title = document.getElementById('title').value;
             const content = document.getElementById('content').value;
             const category = document.getElementById('category').value;
 
             if(!title || !content) return alert('빈칸을 채워주세요.');
 
-            const { error } = await supabase.from('posts').insert([{ title, content, category, is_admin: false }]);
-            if (error) alert('등록 실패');
-            else {
+            // 중요: user_id 항목에 현재 로그인한 유저의 고유 ID(currentUser.id)를 함께 저장합니다.
+            const { error } = await supabase.from('posts').insert([
+                { title, content, category, user_id: currentUser.id, is_admin: false }
+            ]);
+
+            if (error) {
+                alert('등록 실패: ' + error.message);
+            } else {
                 document.getElementById('title').value = '';
                 document.getElementById('content').value = '';
                 getPosts();
