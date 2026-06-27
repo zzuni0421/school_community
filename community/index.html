@@ -148,6 +148,43 @@
         }
 
         getPosts();
+// 로그인
+        async function writePost() {
+    // 1. 현재 로그인한 유저 정보 가져오기
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return alert("로그인이 필요합니다.");
+
+    // 2. 유저가 정지 상태인지 확인
+    const { data: profile, error: profileError } = await supabase
+        .from('profiles')
+        .select('is_banned, banned_until')
+        .eq('id', user.id)
+        .single();
+
+    if (profile.is_banned) {
+        const banEnd = new Date(profile.banned_until);
+        const now = new Date();
+
+        if (banEnd > now) {
+            alert(`징계 중인 계정입니다.\n정지 해제 일시: ${banEnd.toLocaleString()}`);
+            return; // 글쓰기 중단
+        } else {
+            // 정지 기간이 지났다면 자동으로 정지 해제 업데이트
+            await supabase.from('profiles').update({ is_banned: false, banned_until: null }).eq('id', user.id);
+        }
+    }
+
+    // 3. 정지가 아니라면 글 등록 진행
+    const title = document.getElementById('title').value;
+    const content = document.getElementById('content').value;
+    const category = document.getElementById('category').value;
+
+    const { error } = await supabase.from('posts').insert([
+        { title, content, category, user_id: user.id, is_admin: false }
+    ]);
+    
+    // ... 후속 처리
+}
     </script>
 </body>
 </html>
